@@ -1,0 +1,51 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR Frank Morgner
+# This file is distributed under the same license as the eid-pam package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2018-07-29 11:05+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=CHARSET\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: src/eid-add.c:155
+msgid "Configured ~/.eid/authorized_eid"
+msgstr ""
+
+#: src/eid-add.c:99
+#, c-format
+msgid "Connected to %.*s\n"
+msgstr ""
+
+#: src/eid-add.c:127
+msgid "Connected to unknown eID Client"
+msgstr ""
+
+#: src/eid-add.c:44
+msgid "Date Of Birth:   "
+msgstr ""
+
+#: src/eid-add.c:123
+msgid "Failed to connect to eID Client"
+msgstr ""
+
+#: src/eid-add.c:43
+msgid "Family Name(s):  "
+msgstr ""
+
+#: src/eid-add.c:42
+msgid "Given Name(s):   "
+msgstr ""
+
+#: src/eid-add.c:156
+msgid "To enable certificate pinning, run\n"
+msgstr ""

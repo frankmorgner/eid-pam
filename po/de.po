@@ -1,0 +1,52 @@
+# German translations for eid-pam package
+# German translation for eid-pam.
+# Copyright (C) 2018 Frank Morgner
+# This file is distributed under the same license as the eid-pam package.
+# Frank Morgner <frankmorgner@gmail.com>, 2018.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: eid-pam 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2018-07-29 11:05+0200\n"
+"PO-Revision-Date: 2018-07-29 11:10+0200\n"
+"Last-Translator: Frank Morgner <frankmorgner@gmail.com>\n"
+"Language-Team: German\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: src/eid-add.c:155
+msgid "Configured ~/.eid/authorized_eid"
+msgstr "~/.eid/authorized_eid konfiguriert"
+
+#: src/eid-add.c:99
+#, c-format
+msgid "Connected to %.*s\n"
+msgstr "Verbunden mit %.*s\n"
+
+#: src/eid-add.c:127
+msgid "Connected to unknown eID Client"
+msgstr "Verbunden mit unbekanntem eID Client"
+
+#: src/eid-add.c:44
+msgid "Date Of Birth:   "
+msgstr "Geburtsdatum:    "
+
+#: src/eid-add.c:123
+msgid "Failed to connect to eID Client"
+msgstr "Fehler beim Verbinden mit eID Client"
+
+#: src/eid-add.c:43
+msgid "Family Name(s):  "
+msgstr "Nachname(n):     "
+
+#: src/eid-add.c:42
+msgid "Given Name(s):   "
+msgstr "Vorname(n):      "
+
+#: src/eid-add.c:156
+msgid "To enable certificate pinning, run\n"
+msgstr "Um Certificate-Pinning einzuschalten, folgendes ausführen\n"
