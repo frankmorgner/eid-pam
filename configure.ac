@@ -61,14 +61,27 @@ AC_CHECK_HEADERS([security/pam_modules.h security/_pam_macros.h security/pam_mod
    #include <security/pam_appl.h>])
 
 AC_SEARCH_LIBS([pam_modutil_drop_priv], ["pam"], [AC_DEFINE([HAVE_PAM_MODUTIL_DROP_PRIV], [1], [Define to 1 if pam supports pam_modutil_drop_priv])])
+AC_SEARCH_LIBS([pam_vprompt], ["pam"], [AC_DEFINE([HAVE_PAM_VPROMPT], [1], [Define to 1 if pam supports pam_vprompt])])
+AC_SEARCH_LIBS([openpam_ttyconv], ["pam"], [AC_DEFINE([HAVE_OPENPAM_TTYCONV], [1], [Define to 1 if pam supports openpam_ttyconv])])
 AC_CHECK_FUNCS([strnstr])
 
-dnl 7.8.1 is the first version to support curl_easy_*
-LIBCURL_CHECK_CONFIG([], [7.39.0], [], [AC_MSG_ERROR([Cannot find curl])])
+PKG_CHECK_MODULES(
+	[LWS],
+	[libwebsockets >= 2.1.0],
+	[AC_DEFINE([HAVE_LWS], [1], [Have Libwebsockets libraries and header files])],
+	[AC_MSG_ERROR([libwebsockets not available])]
+)
+
+PKG_CHECK_MODULES(
+	[JSONC],
+	[json-c],
+	[AC_DEFINE([HAVE_JSONC], [1], [Have json-c libraries and header files])],
+	[AC_MSG_ERROR([json-c not available])]
+)
 
 saved_CFLAGS="${CFLAGS}"
-CFLAGS="${CFLAGS} ${PAM_CFLAGS} ${LIBCURL_CPPFLAGS}"
-LIBS="$LIBS ${PAM_LIBS} ${LIBCURL}"
+CFLAGS="${CFLAGS} ${PAM_CFLAGS}"
+LIBS="$LIBS ${PAM_LIBS}"
 
 dnl Checks for header files.
 AC_HEADER_STDC
@@ -110,6 +123,8 @@ Libraries:               ${LIBS}
 
 PAM_CFLAGS:              ${PAM_CFLAGS}
 PAM_LIBS:                ${PAM_LIBS}
-LIBCURL_CPPFLAGS:        ${LIBCURL_CPPFLAGS}
-LIBCURL:                 ${LIBCURL}
+LWS_CPFLAGS:             ${LWS_CFLAGS}
+LWS_LIBS:                ${LWS_LIBS}
+JSONC_CPFLAGS:           ${JSONC_CFLAGS}
+JSONC_LIBS:              ${JSONC_LIBS}
 ])

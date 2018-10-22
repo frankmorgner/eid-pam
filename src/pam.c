@@ -1,3 +1,21 @@
+/*
+ * Copyright (C) 2018 Frank Morgner <frankmorgner@gmail.com>
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ */
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -6,7 +24,7 @@
 #define PACKAGE "pam_eid"
 #endif
 
-#include "eid.h"
+#include "selbstauskunft.h"
 #include "drop_privs.h"
 #include <stdlib.h>
 #include <syslog.h>
@@ -23,71 +41,120 @@
 #ifdef HAVE_SECURITY_PAM_EXT_H
 #include <security/pam_ext.h>
 #else
-#include <syslog.h>
 #define pam_syslog(handle, level, msg...) syslog(level, ## msg)
+#endif
+#ifndef HAVE_PAM_VPROMPT
+static int pam_vprompt(pam_handle_t *pamh, int style, char **response,
+		const char *fmt, va_list args)
+{
+	int r = PAM_CRED_INSUFFICIENT;
+	const struct pam_conv *conv;
+	struct pam_message msg;
+	struct pam_response *resp = NULL;
+	struct pam_message *(msgp[1]);
+
+	char text[128];
+	vsnprintf(text, sizeof text, fmt, args);
+
+	msgp[0] = &msg;
+	msg.msg_style = style;
+	msg.msg = text;
+
+	if (PAM_SUCCESS != pam_get_item(pamh, PAM_CONV, (const void **) &conv)
+			|| NULL == conv || NULL == conv->conv
+			|| conv->conv(1, (const struct pam_message **) msgp, &resp, conv->appdata_ptr)
+			|| NULL == resp) {
+		goto err;
+	}
+	if (NULL != response) {
+		if (resp[0].resp) {
+			*response = strdup(resp[0].resp);
+			if (NULL == *response) {
+				pam_syslog(pamh, LOG_CRIT, "strdup() failed: %s",
+						strerror(errno));
+				goto err;
+			}
+		} else {
+			*response = NULL;
+		}
+	}
+
+	r = PAM_SUCCESS;
+err:
+	if (resp) {
+		memset(&resp[0].resp, 0, sizeof resp[0].resp);
+		free(&resp[0]);
+	}
+	return r;
+}
 #endif
 
 #ifndef PAM_EXTERN
 #define PAM_EXTERN extern
 #endif
 
-struct module_data {
-	CURL *curl;
-};
-
-void module_data_cleanup(pam_handle_t *pamh, void *data, int error_status)
-{
-	struct module_data *module_data = data;
-	if (module_data) {
-		if (module_data->curl) {
-			curl_easy_cleanup(module_data->curl);
-		}
-		free(module_data);
-	}
-}
-
-static int module_initialize(pam_handle_t * pamh,
-		int flags, int argc, const char **argv,
-		struct module_data **module_data)
+static int prompt(pam_handle_t *pamh, int style, char **response,
+		const char *fmt, ...)
 {
 	int r;
-	struct module_data *data = calloc(1, sizeof *data);
-	if (NULL == data) {
-		pam_syslog(pamh, LOG_CRIT, "calloc() failed: %s",
-				strerror(errno));
-		r = PAM_BUF_ERR;
-		goto err;
+	va_list args;
+
+	va_start (args, fmt);
+	if (!response) {
+		char *p = NULL;
+		r = pam_vprompt(pamh, style, &p, fmt, args);
+		free(p);
+	} else {
+		r = pam_vprompt(pamh, style, response, fmt, args);
 	}
-
-	data->curl = curl_easy_init();
-	if (NULL == data->curl) {
-		goto err;
-	}
-
-	r = pam_set_data(pamh, PACKAGE, data, module_data_cleanup);
-	if (PAM_SUCCESS != r) {
-		goto err;
-	}
-
-	*module_data = data;
-	data = NULL;
-
-err:
-	module_data_cleanup(pamh, data, r);
+	va_end(args);
 
 	return r;
 }
 
-static int module_refresh(pam_handle_t *pamh,
-		int flags, int argc, const char **argv,
-		const char **user, CURL **curl)
+static struct {
+	int eid_ok;
+	unsigned int aa2_major;
+	unsigned int aa2_minor;
+	unsigned int aa2_fix;
+} eid_client;
+
+static void check_eid_client(void *contents, size_t size)
+{
+	if (strnstr(contents, "Implementation-Title: AusweisApp2", size)) {
+		char *version = strnstr(contents, "Implementation-Version: ", size);
+		if (version && strnstr(contents, "\n", size - (version - (char *) contents))) {
+			sscanf(version, "Implementation-Version: %u.%u.%u\n",
+					&eid_client.aa2_major, &eid_client.aa2_minor, &eid_client.aa2_fix);
+		}
+	}
+	eid_client.eid_ok = 1;
+}
+
+static void module_data_cleanup(pam_handle_t *pamh, void *data, int error_status)
+{
+	selbstauskunft_cancel();
+	memset(&eid_client, 0, sizeof eid_client);
+}
+
+static int module_initialize(pam_handle_t * pamh,
+		int flags, int argc, const char **argv)
 {
 	int r;
+
+	eid_run_status(check_eid_client);
+	return eid_client.eid_ok == 1 ? PAM_SUCCESS : PAM_SERVICE_ERR;
+}
+
+static int module_refresh(pam_handle_t *pamh,
+		int flags, int argc, const char **argv,
+		const char **user)
+{
+	int r = PAM_SERVICE_ERR;
 	struct module_data *module_data;
 
-	if (PAM_SUCCESS != pam_get_data(pamh, PACKAGE, (void *)&module_data)
-			|| NULL == module_data) {
-		r = module_initialize(pamh, flags, argc, argv, &module_data);
+	if (1 != eid_client.eid_ok) {
+		r = module_initialize(pamh, flags, argc, argv);
 		if (PAM_SUCCESS != r) {
 			goto err;
 		}
@@ -101,64 +168,85 @@ static int module_refresh(pam_handle_t *pamh,
 		goto err;
 	}
 
-	*curl = module_data->curl;
+	r = PAM_SUCCESS;
 
 err:
 	return r;
 }
 
-struct file_status {
-	FILE *file;
-	int ok;
-};
+static struct state {
+	pam_handle_t *pamh;
+	char *secret;
+} g_state;
 
-static size_t
-auth_compare(void *contents, size_t size, size_t nmemb, void *userp)
+static int enter_secret(int keypad, const char *secret_name, char **secret)
 {
-	size_t consumed = 0;
-	struct file_status *status = (struct file_status *)userp;
-
-	if (status->ok == 0) {
-		/* we already know that the received data doesn't match */
-		consumed = size*nmemb;
-		goto err;
+	int r = 0;
+	if (secret) {
+		*secret = g_state.secret;
+	}
+	if (g_state.pamh) {
+		if (keypad) {
+			prompt(g_state.pamh,
+					PAM_TEXT_INFO, NULL,
+					"Enter %s on PIN pad",
+					secret_name);
+			r = 1;
+		} else {
+			if (PAM_SUCCESS == prompt(g_state.pamh,
+						PAM_PROMPT_ECHO_OFF, &g_state.secret,
+						"Enter %s: ",
+						secret_name)) {
+				if (secret)
+					*secret = g_state.secret;
+				r = 1;
+			} else {
+				if (secret)
+					*secret = NULL;
+			}
+		}
 	}
 
-	char *buf = calloc(nmemb, size);
-	if (!buf)
-		goto err;
+	return r;
+}
 
-	consumed = fread(buf, size, nmemb, status->file);
+static int enter_pin(const char *reader, int keypad,
+     char **pin)
+{
+	return enter_secret(keypad, "PIN", pin);
+}
 
-	if (0 != memcmp(buf, contents, consumed)) {
-		/* the received data doesn't match */
-		status->ok = 0;
-		goto err;
+static int enter_can(const char *reader, int keypad,
+     char **can)
+{
+	return enter_secret(keypad, "CAN", can);
+}
+
+static void insert_card(void)
+{
+	if (g_state.pamh) {
+		prompt(g_state.pamh, PAM_TEXT_INFO, NULL, "Insert card");
 	}
+}
 
-	if (strstr(buf, action_eid_ok)) {
-		status->ok = 1;
-	}
+static void reset_state(struct state *state,
+	pam_handle_t *pamh)
+{
+    memset(state, 0, sizeof *state);
 
-err:
-	free(buf);
-
-	return consumed;
+	state->pamh = pamh;
 }
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t * pamh, int flags, int argc,
 		const char **argv)
 {
 	int r;
-	CURL *curl;
-	struct file_status status = {NULL, -1};
 	const char *user;
 	struct passwd *passwd = NULL;
 	PAM_MODUTIL_DEF_PRIVS(privs);
-	long disable = 0;
 
 	r = module_refresh(pamh, flags, argc, argv,
-			&user, &curl);
+			&user);
 	if (PAM_SUCCESS != r) {
 		goto err;
 	}
@@ -176,47 +264,21 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t * pamh, int flags, int argc,
 		goto err;
 	}
 
-	status.file = auth_fopen(user, "rb");
-	if (!status.file) {
-		r = PAM_SERVICE_ERR;
-		pam_modutil_regain_priv(pamh, &privs);
-		goto err;
-	}
-
-	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, &disable);
-	if (1 == client_action(curl, action_eid)) {
-		char *url = NULL;
-		long code;
-		while (CURLE_OK == curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code)
-				&& 300 <= code && code < 400
-				&& CURLE_OK == curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &url)
-				&& url) {
-			/* follow redirects manually to make sure that we get authenticated
-			 * data exclusively from https://www.autentapp.de, which we use as
-			 * trusted source for comparison against the reference data */
-			if (strstr(url, "https://www.autentapp.de")) {
-				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, auth_compare);
-				curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&status);
-				client_pubkeypinning(curl, user);
-			}
-			curl_easy_setopt(curl, CURLOPT_URL, url);
-			if (CURLE_OK != curl_easy_perform(curl)) {
-				break;
-			}
-			curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
-			curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
+	if (eid_client.aa2_major <= 1 && eid_client.aa2_minor < 15) {
+		r = selbstauskunft_http_auth(user);
+	} else {
+		reset_state(&g_state, pamh);
+		r = selbstauskunft_aa2_ws_auth(user, enter_pin, enter_can, insert_card);
+		if (g_state.secret) {
+			memset(g_state.secret, 0, strlen(g_state.secret));
+			free(g_state.secret);
 		}
+		reset_state(&g_state, NULL);
 	}
-
-	switch(status.ok) {
+	switch (r) {
 		case 1:
-			if (feof(status.file)) {
-				/* we received the correct data *and* all of our reference data
-				 * has been consumed */
-				r = PAM_SUCCESS;
-				break;
-			}
-			/* fall through */
+			r = PAM_SUCCESS;
+			break;
 		case 0:
 			r = PAM_AUTH_ERR;
 			break;
@@ -233,9 +295,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t * pamh, int flags, int argc,
 err:
 	if (passwd) {
 		free(passwd);
-	}
-	if (status.file) {
-		fclose(status.file);
 	}
 
 	return r;
@@ -276,10 +335,9 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t * pamh, int flags, int argc,
 	int r;
 	const char *user;
 	const char *action;
-	CURL *curl;
 
 	r = module_refresh(pamh, flags, argc, argv,
-			&user, &curl);
+			&user);
 	if (PAM_SUCCESS != r) {
 		goto err;
 	}
@@ -289,14 +347,13 @@ PAM_EXTERN int pam_sm_chauthtok(pam_handle_t * pamh, int flags, int argc,
 		r = PAM_SUCCESS;
 		goto err;
 	} else if (flags & PAM_UPDATE_AUTHTOK) {
-		action = action_pinmanagement;
+		eid_run_pinmanagement(NULL);
 	} else {
-		action = action_status;
-	}
-
-	if (1 != client_action(curl, action)) {
-		r = PAM_AUTHINFO_UNAVAIL;
-		goto err;
+		memset(&eid_client, 0, sizeof eid_client);
+		eid_run_status(check_eid_client);
+		if (1 != eid_client.eid_ok) {
+			goto err;
+		}
 	}
 
 	if (flags & PAM_PRELIM_CHECK) {
